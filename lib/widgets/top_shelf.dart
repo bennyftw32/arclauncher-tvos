@@ -12,7 +12,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flauncher/models/watch_next_item.dart';
-import 'package:flauncher/providers/apps_service.dart';
 import 'package:flauncher/providers/launcher_state.dart';
 import 'package:flauncher/providers/watch_next_service.dart';
 import 'package:flauncher/theme/tvos_tokens.dart';
@@ -23,7 +22,7 @@ import 'package:provider/provider.dart';
 
 /// Full-bleed art for the focused dock app, drawn behind the home screen like Apple TV's
 /// Top Shelf. Shows the app's "continue watching" and featured items with their titles;
-/// when the app publishes nothing, falls back to its banner, blurred and dimmed.
+/// apps that publish nothing show no shelf, just the background.
 ///
 /// Up from the dock focuses the shelf (see [LauncherState.focusShelf]); Left/Right pages
 /// through items, Select plays the current one, Down/Back returns to the dock.
@@ -81,7 +80,6 @@ class _TopShelfState extends State<TopShelf> {
 
   Future<void> _load(String packageName) async {
     final watchNext = context.read<WatchNextService>();
-    final apps = context.read<AppsService>();
     final launcherState = context.read<LauncherState>();
 
     final items = (await watchNext.shelfItemsFor(packageName))
@@ -91,13 +89,9 @@ class _TopShelfState extends State<TopShelf> {
         })
         .toList(growable: false);
 
-    Uint8List? fallback;
-    if (items.isEmpty) {
-      fallback = await apps.getAppBanner(packageName);
-      if (fallback.isEmpty) {
-        fallback = await apps.getAppIcon(packageName);
-      }
-    } else {
+    // Apps that publish no artwork get no shelf (just the background): a blown-up, blurred copy
+    // of their small banner looked muddy on a 4K TV.
+    if (items.isNotEmpty) {
       watchNext.ensurePosterLoaded(WatchNextService.shelfImageUri(items.first));
     }
 
@@ -106,7 +100,7 @@ class _TopShelfState extends State<TopShelf> {
     }
     launcherState.setShelfInteractive(items.isNotEmpty);
     setState(() {
-      _content = _ShelfContent(packageName: packageName, items: items, fallbackImage: fallback);
+      _content = _ShelfContent(packageName: packageName, items: items);
     });
   }
 
@@ -115,6 +109,35 @@ class _TopShelfState extends State<TopShelf> {
   static ImageProvider shelfImage(Uint8List bytes) => ResizeImage(MemoryImage(bytes), width: 1280);
 
   final Set<String> _precached = {};
+
+  // Art narrower than this looks soft stretched across a 4K screen, so it isn't shown at all:
+  // a plain background beats a blurry one.
+  static const int _minArtWidth = 1280;
+  final Map<String, int> _artWidths = {};
+  final Set<String> _measuring = {};
+
+  /// Pixel width of [uri]'s image (read from its header, no full decode), or null until known.
+  int? _artWidth(String uri, Uint8List bytes) {
+    final known = _artWidths[uri];
+    if (known != null || _measuring.contains(uri)) {
+      return known;
+    }
+    _measuring.add(uri);
+    () async {
+      try {
+        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        _artWidths[uri] = descriptor.width;
+        descriptor.dispose();
+        buffer.dispose();
+      } catch (_) {
+        _artWidths[uri] = 0;
+      }
+      _measuring.remove(uri);
+      if (mounted) setState(() {});
+    }();
+    return null;
+  }
 
   /// Decode the items either side of the current one ahead of time, so paging only crossfades
   /// already-decoded images instead of decoding mid-animation (measured jank: 11.7% -> see tools/perf.sh).
@@ -211,7 +234,12 @@ class _TopShelfState extends State<TopShelf> {
     // with alpha ([ShelfImageCrossfade], no offscreen layer). Switching apps swaps the whole shelf.
     Widget child;
     Widget? titleText;
-    final showingArt = content != null && content.current != null && posterBytes != null;
+    final artWidth = (currentUri != null && posterBytes != null) ? _artWidth(currentUri, posterBytes) : null;
+    final showingArt = content != null &&
+        content.current != null &&
+        posterBytes != null &&
+        artWidth != null &&
+        artWidth >= _minArtWidth;
     if (content == null) {
       child = const SizedBox.expand(key: ValueKey('empty'));
     } else if (showingArt) {
@@ -221,18 +249,22 @@ class _TopShelfState extends State<TopShelf> {
         title: content.current!.title,
         description: content.current!.description,
       );
-    } else if (content.fallbackImage != null && content.fallbackImage!.isNotEmpty) {
-      child = _FallbackShelf(
-        key: ValueKey('fallback-${content.packageName}'),
-        image: MemoryImage(content.fallbackImage!),
-      );
     } else {
       child = const SizedBox.expand(key: ValueKey('empty'));
     }
 
-    final art = showingArt ? posterBytes : content?.fallbackImage;
+    final art = showingArt ? posterBytes : null;
     if (launcherState.shelfArt.value != art) {
       WidgetsBinding.instance.addPostFrameCallback((_) => launcherState.shelfArt.value = art);
+    }
+    // Only let Up move into the shelf when there is sharp art to look at.
+    // (Never drop focusability while the shelf itself is focused - paging onto a low-res item would
+    // strand focus.)
+    if (content != null &&
+        content.items.isNotEmpty &&
+        launcherState.shelfInteractive != showingArt &&
+        !launcherState.shelfFocusNode.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => launcherState.setShelfInteractive(showingArt));
     }
 
     final interactive = context.select<LauncherState, bool>((s) => s.shelfInteractive);
@@ -295,10 +327,9 @@ class _TopShelfState extends State<TopShelf> {
 class _ShelfContent {
   final String packageName;
   final List<WatchNextItem> items;
-  final Uint8List? fallbackImage;
   int index = 0;
 
-  _ShelfContent({required this.packageName, required this.items, this.fallbackImage});
+  _ShelfContent({required this.packageName, required this.items});
 
   WatchNextItem? get current => items.isEmpty ? null : items[index];
 }
@@ -475,31 +506,3 @@ class _ShelfScrim extends StatelessWidget {
   }
 }
 
-/// The app's own banner, enlarged, blurred and dimmed: a colour wash in the app's palette.
-class _FallbackShelf extends StatelessWidget {
-  final ImageProvider image;
-
-  const _FallbackShelf({super.key, required this.image});
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(sigmaX: 60, sigmaY: 60, tileMode: TileMode.clamp),
-          child: Image(image: ResizeImage(image, width: 320), fit: BoxFit.cover),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0x59000000), Color(0xCC000000)],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
