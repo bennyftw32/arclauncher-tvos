@@ -652,6 +652,9 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
       builder: (context) => ApplicationInfoPanel(category: widget.category, application: widget.application),
     );
     if (result == ApplicationInfoPanelResult.reorderApp) {
+      // The menu may have been opened by touch, which doesn't focus the tile; the arrow keys
+      // that move it only reach a focused tile.
+      _focusNode.requestFocus();
       setState(() => _moving = true);
     }
   }
