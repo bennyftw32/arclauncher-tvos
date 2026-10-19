@@ -21,7 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flauncher/providers/apps_service.dart';
 import 'package:flauncher/widgets/add_to_category_dialog.dart';
-import 'package:flauncher/widgets/side_panel_dialog.dart';
+import 'package:flauncher/widgets/tvos_action_sheet.dart';
 import 'package:flauncher/widgets/tv_media_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:flauncher/l10n/app_localizations.dart';
@@ -60,9 +60,7 @@ class _ApplicationInfoPanelState extends State<ApplicationInfoPanel>
   Widget build(BuildContext context) {
     AppLocalizations localizations = AppLocalizations.of(context)!;
 
-    return SidePanelDialog(
-        width: 300,
-        isRightSide: false,
+    return TvosActionSheet(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

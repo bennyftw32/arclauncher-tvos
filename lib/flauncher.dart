@@ -58,7 +58,7 @@ const double _kDockTopFraction = 0.66; // lands the dock at ~58% once the initia
 
 
 // Extra room inside the dock below the tiles for the focused app's name.
-const double _kDockLabelSpace = 34;
+const double _kDockLabelSpace = 24;
 
 class FLauncher extends StatefulWidget {
   const FLauncher({super.key});
@@ -525,7 +525,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     // tvOS "glass" shelf: translucent fill, thin light stroke, and a brighter sheen along the
     // top edge where light catches it.
     final content = Container(
-      padding: const EdgeInsets.only(top: 10, bottom: 10 + _kDockLabelSpace, left: 12, right: 12),
+      padding: const EdgeInsets.only(top: 8, bottom: 2 + _kDockLabelSpace, left: 12, right: 12),
       foregroundDecoration: BoxDecoration(
         borderRadius: borderRadius,
         gradient: const LinearGradient(

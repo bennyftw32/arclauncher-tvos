@@ -227,8 +227,11 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
                   children: [
                     _wrapAspectRatio(
                   RepaintBoundary(
-                    child: AnimatedScale(
-                      scale: !_moving && shouldHighlight ? _focusedScale : 1.0,
+                    child: _Jiggle(
+                      active: _moving,
+                      child: AnimatedScale(
+                      // Moving (tvOS edit mode): stays lifted while it jiggles.
+                      scale: _moving ? _focusedScale : (shouldHighlight ? _focusedScale : 1.0),
                       duration: _focusAnimationDuration,
                       alignment: Alignment.center,
                       curve: TvosTokens.focusCurve,
@@ -269,7 +272,6 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
                                     _handleFocusChange(context, focused);
                                   },
                                 ),
-                                if (_moving) ..._arrows(),
                               ],
                             ),
                           ),
@@ -292,6 +294,7 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
                         ],
                       ),
                       ),
+                    ),
                     ),
                 ),
                 ),
@@ -578,45 +581,6 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
     );
   }
 
-  List<Widget> _arrows() {
-    final arrows = <Widget>[
-      _arrow(Alignment.centerLeft, Icons.keyboard_arrow_left, () {
-        widget.onMove(AxisDirection.left);
-      }),
-      _arrow(Alignment.centerRight, Icons.keyboard_arrow_right, () {
-        widget.onMove(AxisDirection.right);
-      }),
-    ];
-
-    // Only show Up/Down arrows for grid layouts
-    if (widget.category.type == CategoryType.grid) {
-      arrows.add(
-        _arrow(Alignment.topCenter, Icons.keyboard_arrow_up, () {
-          widget.onMove(AxisDirection.up);
-        }),
-      );
-      arrows.add(
-        _arrow(Alignment.bottomCenter, Icons.keyboard_arrow_down, () {
-          widget.onMove(AxisDirection.down);
-        }),
-      );
-    }
-
-    return arrows;
-  }
-
-  Widget _arrow(Alignment alignment, IconData icon, VoidCallback onTap) => Align(
-    alignment: alignment,
-    child: Ink(
-      decoration: ShapeDecoration(color: Theme.of(context).primaryColor.withValues(alpha: 0.8), shape: CircleBorder()),
-      child: SizedBox(
-        height: 36,
-        width: 36,
-        child: IconButton(icon: Icon(icon, size: 24), onPressed: onTap, padding: EdgeInsets.all(0)),
-      ),
-    ),
-  );
-
   KeyEventResult _onPressed(LogicalKeyboardKey? key) {
     if (_moving) {
       if (_validationKeys.contains(key) || key == LogicalKeyboardKey.escape) {
@@ -690,6 +654,67 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
     if (result == ApplicationInfoPanelResult.reorderApp) {
       setState(() => _moving = true);
     }
+  }
+}
+
+/// tvOS edit-mode "jiggle": a small, quick back-and-forth rotation while a tile is being moved.
+class _Jiggle extends StatefulWidget {
+  final bool active;
+  final Widget child;
+
+  const _Jiggle({required this.active, required this.child});
+
+  @override
+  State<_Jiggle> createState() => _JiggleState();
+}
+
+class _JiggleState extends State<_Jiggle> with SingleTickerProviderStateMixin {
+  static const double _amplitude = 1.5 * 3.14159265 / 180; // 1.5 degrees
+
+  late final AnimationController _controller =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_Jiggle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.active && !_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    } else if (!widget.active && _controller.isAnimating) {
+      _controller
+        ..stop()
+        ..value = 0.5;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) {
+      return widget.child;
+    }
+    return AnimatedBuilder(
+      animation: _controller,
+      child: widget.child,
+      builder: (context, child) => Transform.rotate(
+        angle: (Curves.easeInOut.transform(_controller.value) * 2 - 1) * _amplitude,
+        child: child,
+      ),
+    );
   }
 }
 
