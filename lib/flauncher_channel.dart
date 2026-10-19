@@ -28,11 +28,14 @@ class FLauncherChannel {
 
   static const _watchNextMaxItems = 10;
 
-  /// Calls [onOpen] when the native side asks for Control Center (Home held down).
-  void setControlCenterListener(VoidCallback onOpen) {
+  /// Calls [onOpen] when the native side asks for Control Center (Home held down), and [onHome]
+  /// when Home is pressed (the launcher gets a new HOME intent).
+  void setControlCenterListener(VoidCallback onOpen, {VoidCallback? onHome}) {
     _methodChannel.setMethodCallHandler((call) async {
       if (call.method == 'openControlCenter') {
         onOpen();
+      } else if (call.method == 'homePressed') {
+        onHome?.call();
       }
     });
   }

@@ -76,6 +76,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
   final GlobalKey _dockKey = GlobalKey();
   // On-screen top edge of the dock, for placing the Top Shelf title above it.
   final ValueNotifier<double?> _dockTop = ValueNotifier(null);
+  // Wraps the dock so Home can send focus back to it; remembers the dock tile focused last.
+  final FocusNode _dockFocus = FocusNode(debugLabel: 'dock', skipTraversal: true, canRequestFocus: false);
+  FocusNode? _lastDockFocus;
+  final GlobalKey _dockContentKey = GlobalKey();
 
   @override
   void initState() {
@@ -87,7 +91,8 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     final channel = context.read<FLauncherChannel>();
     channel.setControlCenterListener(() {
       if (mounted) ControlCenter.show(context);
-    });
+    }, onHome: _onHomePressed);
+    FocusManager.instance.addListener(_rememberDockFocus);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (await channel.consumeControlCenterRequest() && mounted) {
         ControlCenter.show(context);
@@ -98,10 +103,35 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    FocusManager.instance.removeListener(_rememberDockFocus);
+    _dockFocus.dispose();
     _scrollController.dispose();
     _dockTop.dispose();
     _dockSettled.dispose();
     super.dispose();
+  }
+
+  void _rememberDockFocus() {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus != null && focus != _dockFocus && focus.ancestors.contains(_dockFocus)) {
+      _lastDockFocus = focus;
+    }
+  }
+
+  /// tvOS: Home closes whatever is open and puts focus back on the dock, page scrolled to the top.
+  void _onHomePressed() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    // After the pop, so the closed route's focus restoration doesn't win.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The dock rebuilds its tiles (and their focus nodes) when apps change, so only reuse the
+      // remembered tile if it's still one of the dock's live nodes.
+      final tiles = _dockFocus.traversalDescendants.toList();
+      final target = tiles.contains(_lastDockFocus) ? _lastDockFocus : tiles.firstOrNull;
+      target?.requestFocus();
+    });
+    // Nothing may have changed on screen, so make sure that frame actually comes.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _updateDockTop() {
@@ -264,14 +294,17 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
             SliverToBoxAdapter(
               child: KeyedSubtree(
                 key: _dockKey,
-                child: Padding(
-                  padding: _kDockOuterPadding,
-                  child: _dock(
-                    context,
-                    favoritesCategory!,
-                    favoriteApps,
-                    appsService,
-                    handleUpNavigationToSettings: !reserveWatchNextSpace,
+                child: Focus(
+                  focusNode: _dockFocus,
+                  child: Padding(
+                    padding: _kDockOuterPadding,
+                    child: _dock(
+                      context,
+                      favoritesCategory!,
+                      favoriteApps,
+                      appsService,
+                      handleUpNavigationToSettings: !reserveWatchNextSpace,
+                    ),
                   ),
                 ),
               ),
@@ -551,7 +584,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
 
     // tvOS "glass" shelf: translucent fill, thin light stroke, and a brighter sheen along the
     // top edge where light catches it.
+    // The backdrop below swaps widget types as focus and scrolling change; the GlobalKey moves the
+    // dock across those swaps instead of rebuilding it, which would drop its tiles' focus.
     final content = Container(
+      key: _dockContentKey,
       padding: const EdgeInsets.only(top: 8, bottom: 2 + _kDockLabelSpace, left: 12, right: 12),
       foregroundDecoration: BoxDecoration(
         borderRadius: borderRadius,

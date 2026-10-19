@@ -101,6 +101,10 @@ public class MainActivity extends FlutterActivity {
             } else {
                 controlCenterPending = true;
             }
+        } else if (Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_HOME)
+                && methodChannel != null) {
+            // tvOS: Home always lands back on the dock, even if the launcher was already showing.
+            methodChannel.invokeMethod("homePressed", null);
         }
     }
 
@@ -272,6 +276,10 @@ public class MainActivity extends FlutterActivity {
 
         boolean settingsPresent = false;
         int appCount = 0;
+        // Like tvOS, the launcher doesn't list itself (its settings are behind the status-bar gear).
+        String ownPackage = getPackageName();
+        if (tvActivitiesInfo != null) tvActivitiesInfo.removeIf(info -> info.activityInfo.packageName.equals(ownPackage));
+        if (nonTvActivitiesInfo != null) nonTvActivitiesInfo.removeIf(info -> info.activityInfo.packageName.equals(ownPackage));
         for (ResolveInfo tvActivityInfo : tvActivitiesInfo) {
             if (!settingsPresent) {
                 settingsPresent = tvActivityInfo.activityInfo.packageName.equals("com.android.tv.settings");

@@ -19,6 +19,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:collection';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:collection/collection.dart' as collection;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -294,8 +295,14 @@ class AppsService extends ChangeNotifier
         .where((app) => !appsFromSystemByPackageName.containsKey(app.packageName));
 
     final List<String> uninstalledApplications = [];
+    final ownPackage = (await PackageInfo.fromPlatform()).packageName;
     for (App app in appsRemovedFromSystem) {
       String packageName = app.packageName;
+      // The launcher no longer lists itself; drop its tile left over from older versions.
+      if (packageName == ownPackage) {
+        uninstalledApplications.add(packageName);
+        continue;
+      }
 
       // TODO: Is this really necessary? Can't we get this information from the getApplications method?
       bool appExists = await _fLauncherChannel.applicationExists(packageName);
