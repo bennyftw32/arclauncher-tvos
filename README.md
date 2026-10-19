@@ -1,3 +1,29 @@
+# Arc TV (tvOS-style fork of Arc Launcher)
+
+**Arc TV** is a fork of [Arc Launcher](https://github.com/meddouribadis/arclauncher) reworked to feel like
+the Apple TV home screen on Android TV / Google TV boxes:
+
+- **Top Shelf** - full-screen art for the focused dock app (its Continue Watching and featured
+  items); press Up to browse it, Left/Right to page, Select to play.
+- **tvOS tiles** - 5:3 icons, 5 per row, that lift with a deeper shadow, tilt and catch a glare
+  when focused; the name appears only under the focused app.
+- **Glass dock** under the shelf, **folders** with a 3x3 preview, **edit-mode jiggle** when moving
+  apps, centred **action sheets**.
+- **Control Center** - hold Home (needs the "Arc TV Home button" accessibility service).
+- Dark appearance, no status bar, Inter typeface, and hand-off to the
+  [Aerial Views](https://github.com/theothernt/AerialViews) screensaver.
+- Tuned for 60 fps on a 2 GB Amlogic box (`tools/perf.sh`).
+
+Design notes and the phase-by-phase plan are in [docs/TVOS_REDESIGN_PLAN.md](docs/TVOS_REDESIGN_PLAN.md).
+
+> Arc TV is an independent project. It is not affiliated with, endorsed by, or sponsored by Apple Inc.
+> Apple, Apple TV and tvOS are trademarks of Apple Inc. No Apple fonts, icons, images or sounds are
+> included: the typeface is [Inter](https://rsms.me/inter/) (SIL OFL 1.1).
+
+Arc TV keeps Arc Launcher's GPL-3.0 license. Everything below is the upstream README.
+
+---
+
 # Arc Launcher
 
 <picture>
