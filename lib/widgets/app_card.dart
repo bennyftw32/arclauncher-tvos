@@ -17,13 +17,16 @@
  */
 
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flauncher/actions.dart';
 import 'package:flauncher/app_image_type.dart';
 import 'package:flauncher/providers/apps_service.dart';
 import 'package:flauncher/providers/settings_service.dart';
+import 'package:flauncher/theme/tvos_tokens.dart';
 import 'package:flauncher/widgets/application_info_panel.dart';
 import 'package:flauncher/widgets/focus_keyboard_listener.dart';
+import 'package:flauncher/widgets/parallax_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -34,7 +37,8 @@ import '../models/category.dart';
 
 const _validationKeys = [LogicalKeyboardKey.select, LogicalKeyboardKey.enter, LogicalKeyboardKey.gameButtonA];
 
-const kAppCardAspectRatio = 16 / 9;
+// tvOS app icons are 5:3 (400x240 @1x).
+const kAppCardAspectRatio = 5 / 3;
 const kAppCardHorizontalPadding = 12.0;
 const kAppCardVerticalPadding = 9.0;
 const kLauncherSectionHorizontalPadding = 24.0;
@@ -103,8 +107,16 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
   late final AnimationController _animation;
 
   late final CurvedAnimation _curvedAnimation;
-  static const double _focusedScale = 1.07;
-  static const Duration _focusAnimationDuration = Duration(milliseconds: 180);
+  static const double _focusedScale = TvosTokens.focusScale;
+  static const Duration _focusAnimationDuration = TvosTokens.focusDuration;
+
+  // Centre of the last focused card, shared by all cards, so a newly focused card knows which
+  // way focus travelled and can tilt in that direction.
+  static Offset? _lastFocusCenter;
+  Offset _entryDirection = Offset.zero;
+
+  // Background for apps that only ship a square icon (no TV banner), sampled from the icon.
+  Color? _iconBackground;
 
   @override
   void initState() {
@@ -196,7 +208,7 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
       onPressed: _onPressed,
       onLongPress: _onLongPress,
       child: AnimatedScale(
-        scale: _clicked ? 0.9 : 1.0,
+        scale: _clicked ? 0.95 : 1.0,
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
         child: AnimatedOpacity(
@@ -206,21 +218,40 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
             mainAxisSize: MainAxisSize.min,
             children: [
               Flexible(
-                child: _wrapAspectRatio(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  fit: StackFit.passthrough,
+                  children: [
+                    _wrapAspectRatio(
                   RepaintBoundary(
                     child: AnimatedScale(
                       scale: !_moving && shouldHighlight ? _focusedScale : 1.0,
                       duration: _focusAnimationDuration,
                       alignment: Alignment.center,
-                      curve: Curves.easeOutCubic,
-                      child: Stack(
+                      curve: TvosTokens.focusCurve,
+                      child: ParallaxTile(
+                        focused: shouldHighlight && !_moving,
+                        entryDirection: _entryDirection,
+                        child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Material(
-                            borderRadius: BorderRadius.circular(12),
+                          AnimatedContainer(
+                            duration: _focusAnimationDuration,
+                            curve: TvosTokens.focusCurve,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(TvosTokens.tileRadius),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: shouldHighlight ? 0.55 : 0.35),
+                                  blurRadius: shouldHighlight ? TvosTokens.focusShadowBlur : TvosTokens.restShadowBlur,
+                                  offset: shouldHighlight ? TvosTokens.focusShadowOffset : TvosTokens.restShadowOffset,
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                            color: _iconBackground ?? TvosTokens.surface,
+                            borderRadius: BorderRadius.circular(TvosTokens.tileRadius),
                             clipBehavior: Clip.antiAlias,
-                            elevation: shouldHighlight ? 7 : 4,
-                            shadowColor: Colors.black,
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
@@ -236,16 +267,9 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
                                   },
                                 ),
                                 if (_moving) ..._arrows(),
-                                IgnorePointer(
-                                  child: AnimatedOpacity(
-                                    duration: _focusAnimationDuration,
-                                    curve: Curves.easeInOut,
-                                    opacity: shouldHighlight ? 0.0 : 1.0,
-                                    child: const ColoredBox(color: Color(0x1A000000)),
-                                  ),
-                                ),
                               ],
                             ),
+                          ),
                           ),
                           if (shouldHighlight && showFocusBorders)
                             if (animationEnabled)
@@ -264,8 +288,26 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
                               IgnorePointer(child: RepaintBoundary(child: _HighlightOutline(color: _accentColor))),
                         ],
                       ),
+                      ),
                     ),
                 ),
+                ),
+                    // tvOS shows the name only under the focused tile, in the gap below it.
+                    if (!showAppNames)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: -30,
+                        child: IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: shouldHighlight && !_moving ? 1 : 0,
+                            duration: _focusAnimationDuration,
+                            curve: TvosTokens.focusCurve,
+                            child: _AppNameLabel(name: widget.application.name),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               if (showAppNames)
@@ -287,15 +329,49 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
         type = AppImageType.Icon;
         bytes = await service.getAppIcon(widget.application.packageName);
       }
+      final iconBackground = type == AppImageType.Icon ? await _sampleIconBackground(bytes) : null;
       if (mounted) {
         setState(() {
           _loadedImage = (type, ResizeImage(MemoryImage(bytes), width: 480));
+          _iconBackground = iconBackground;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() => _imageLoadError = true);
       }
+    }
+  }
+
+  /// Average colour of the icon's opaque pixels, darkened a little so a white logo stays
+  /// readable — the plain "app colour" tile tvOS shows for icon-only apps.
+  static Future<Color?> _sampleIconBackground(Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 16, targetHeight: 16);
+      final frame = await codec.getNextFrame();
+      final data = await frame.image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      frame.image.dispose();
+      codec.dispose();
+      if (data == null) {
+        return null;
+      }
+      int r = 0, g = 0, b = 0, n = 0;
+      for (int i = 0; i + 3 < data.lengthInBytes; i += 4) {
+        if (data.getUint8(i + 3) < 200) {
+          continue;
+        }
+        r += data.getUint8(i);
+        g += data.getUint8(i + 1);
+        b += data.getUint8(i + 2);
+        n++;
+      }
+      if (n == 0) {
+        return null;
+      }
+      final average = Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n);
+      return Color.lerp(average, Colors.black, 0.25);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -314,25 +390,11 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
       if (type == AppImageType.Banner) {
         return Ink.image(image: image, fit: BoxFit.cover);
       } else {
-        return Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            children: [
-              Expanded(flex: 2, child: Ink.image(image: image, height: double.maxFinite)),
-              Flexible(
-                flex: 3,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(
-                    app.name,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 3,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        // Icon-only app: the icon centred on its own colour, like a tvOS tile.
+        return FractionallySizedBox(
+          widthFactor: 0.42,
+          heightFactor: 0.62,
+          child: Ink.image(image: image, fit: BoxFit.contain),
         );
       }
     } else if (_imageLoadError) {
@@ -383,6 +445,9 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
   }
 
   void _handleFocusChange(BuildContext context, bool focused) {
+    if (focused) {
+      _entryDirection = _focusTravelDirection(context);
+    }
     if (_isFocused != focused) {
       setState(() {
         _isFocused = focused;
@@ -413,6 +478,28 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
       );
     }
     widget.onFocused?.call();
+  }
+
+  /// Unit step along the dominant axis from the previously focused card to this one,
+  /// e.g. (1, 0) after pressing Right. Zero for the first focus.
+  Offset _focusTravelDirection(BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      return Offset.zero;
+    }
+    final centre = box.localToGlobal(box.size.center(Offset.zero));
+    final previous = _lastFocusCenter;
+    _lastFocusCenter = centre;
+    if (previous == null) {
+      return Offset.zero;
+    }
+    final delta = centre - previous;
+    if (delta.distance < 1) {
+      return Offset.zero;
+    }
+    return delta.dx.abs() >= delta.dy.abs()
+        ? Offset(delta.dx.sign, 0)
+        : Offset(0, delta.dy.sign);
   }
 
   void _updateHighlightAnimation() {
@@ -610,7 +697,13 @@ class _AppNameLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       name,
-      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 12),
+      style: const TextStyle(
+        fontFamily: TvosTokens.fontFamily,
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
+        color: TvosTokens.textPrimary,
+        shadows: [Shadow(color: Colors.black54, offset: Offset(0, 1), blurRadius: 6)],
+      ),
       overflow: TextOverflow.ellipsis,
       maxLines: 1,
       textAlign: TextAlign.center,

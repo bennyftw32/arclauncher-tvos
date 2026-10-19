@@ -325,7 +325,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: category.columnsCount,
                   childAspectRatio: gridAspectRatio,
-                  mainAxisSpacing: 12,
+                  mainAxisSpacing: 28, // room for the focused tile's name label
                   crossAxisSpacing: 0,
                 ),
                 delegate: SliverChildBuilderDelegate(

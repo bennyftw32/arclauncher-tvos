@@ -61,7 +61,7 @@ class AppsGrid extends StatelessWidget
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: category.columnsCount,
               childAspectRatio: childAspectRatio,
-              mainAxisSpacing: 12,
+              mainAxisSpacing: 28, // room for the focused tile's name label
               crossAxisSpacing: 0,
             ),
             childrenDelegate: SliverChildBuilderDelegate(
