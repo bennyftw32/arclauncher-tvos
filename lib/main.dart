@@ -44,6 +44,7 @@ Future<void> main() async {
 
   runApp(MultiProvider(
       providers: [
+        Provider<FLauncherChannel>.value(value: fLauncherChannel),
         ChangeNotifierProvider(
             create: (_) => SettingsService(sharedPreferences),
             lazy: false),

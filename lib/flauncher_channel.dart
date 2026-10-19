@@ -18,6 +18,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class FLauncherChannel {
@@ -26,6 +27,26 @@ class FLauncherChannel {
   static const _networkEventChannel = EventChannel('me.efesser.flauncher/event_network');
 
   static const _watchNextMaxItems = 10;
+
+  /// Calls [onOpen] when the native side asks for Control Center (Home held down).
+  void setControlCenterListener(VoidCallback onOpen) {
+    _methodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'openControlCenter') {
+        onOpen();
+      }
+    });
+  }
+
+  /// True once if Control Center was requested before Flutter was listening (cold start).
+  Future<bool> consumeControlCenterRequest() async =>
+      await _methodChannel.invokeMethod<bool>('consumeControlCenterRequest') ?? false;
+
+  /// Whether the "hold Home for Control Center" accessibility service is running.
+  Future<bool> isHomeButtonServiceEnabled() async =>
+      await _methodChannel.invokeMethod<bool>('isHomeButtonServiceEnabled') ?? false;
+
+  /// Puts the box to sleep. Needs the Home-button accessibility service; returns false without it.
+  Future<bool> sleepNow() async => await _methodChannel.invokeMethod<bool>('sleepNow') ?? false;
 
   Future<List<Map<dynamic, dynamic>>> getApplications() async {
     List<Map<dynamic, dynamic>>? applications = await _methodChannel.invokeListMethod("getApplications");

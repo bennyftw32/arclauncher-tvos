@@ -80,14 +80,48 @@ public class MainActivity extends FlutterActivity {
     private static final int REQUEST_CODE_READ_TV_LISTINGS = 1001;
     private static final String COLUMN_ASPECT_RATIO = "aspect_ratio";
 
+    private MethodChannel methodChannel;
+    // Set when Control Center was requested before Flutter could be told (cold start).
+    private boolean controlCenterPending = false;
+
+    @Override
+    protected void onCreate(android.os.Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        if (getIntent() != null && getIntent().getBooleanExtra(ArcAccessibilityService.EXTRA_OPEN_CONTROL_CENTER, false)) {
+            controlCenterPending = true;
+        }
+    }
+
+    @Override
+    protected void onNewIntent(@NonNull Intent intent) {
+        super.onNewIntent(intent);
+        if (intent.getBooleanExtra(ArcAccessibilityService.EXTRA_OPEN_CONTROL_CENTER, false)) {
+            if (methodChannel != null) {
+                methodChannel.invokeMethod("openControlCenter", null);
+            } else {
+                controlCenterPending = true;
+            }
+        }
+    }
+
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
 
         BinaryMessenger messenger = flutterEngine.getDartExecutor().getBinaryMessenger();
 
-        new MethodChannel(messenger, METHOD_CHANNEL).setMethodCallHandler((call, result) -> {
+        methodChannel = new MethodChannel(messenger, METHOD_CHANNEL);
+        methodChannel.setMethodCallHandler((call, result) -> {
             switch (call.method) {
+                case "consumeControlCenterRequest" -> {
+                    result.success(controlCenterPending);
+                    controlCenterPending = false;
+                }
+                case "isHomeButtonServiceEnabled" -> result.success(ArcAccessibilityService.getInstance() != null);
+                case "sleepNow" -> {
+                    ArcAccessibilityService service = ArcAccessibilityService.getInstance();
+                    result.success(service != null && service.sleepNow());
+                }
                 case "getApplications" -> result.success(getApplications());
                 case "getApplicationBanner" -> result.success(getApplicationBanner(call.arguments()));
                 case "getApplicationIcon" -> result.success(getApplicationIcon(call.arguments()));

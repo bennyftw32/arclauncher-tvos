@@ -32,6 +32,8 @@ import 'package:flauncher/widgets/cached_blur_backdrop.dart';
 import 'package:flauncher/widgets/category_clean_row.dart';
 import 'package:flauncher/widgets/category_row.dart';
 import 'package:flauncher/widgets/launcher_alternative_view.dart';
+import 'package:flauncher/flauncher_channel.dart';
+import 'package:flauncher/widgets/control_center.dart';
 import 'package:flauncher/widgets/folder_tile.dart';
 import 'package:flauncher/widgets/top_shelf.dart';
 import 'package:flauncher/theme/tvos_tokens.dart';
@@ -79,6 +81,17 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_updateDockTop);
+
+    // Holding Home opens Control Center (via ArcAccessibilityService).
+    final channel = context.read<FLauncherChannel>();
+    channel.setControlCenterListener(() {
+      if (mounted) ControlCenter.show(context);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await channel.consumeControlCenterRequest() && mounted) {
+        ControlCenter.show(context);
+      }
+    });
   }
 
   @override
