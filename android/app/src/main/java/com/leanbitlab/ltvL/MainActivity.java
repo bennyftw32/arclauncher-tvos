@@ -527,8 +527,17 @@ public class MainActivity extends FlutterActivity {
     private boolean startAmbientMode() {
         Intent intent = new Intent(Intent.ACTION_MAIN)
                 .setClassName("com.android.systemui", "com.android.systemui.Somnambulator");
-
-        return tryStartActivity(intent);
+        if (tryStartActivity(intent)) {
+            return true;
+        }
+        // Google TV's SystemUI has no Somnambulator. Aerial Views (the Apple-style screensaver
+        // this fork pairs with) exposes an activity that plays the screensaver directly.
+        Intent aerial = new Intent(Intent.ACTION_MAIN)
+                .setClassName("com.neilturner.aerialviews", "com.neilturner.aerialviews.ui.screensaver.TestActivity");
+        if (tryStartActivity(aerial)) {
+            return true;
+        }
+        return tryStartActivity(new Intent(Settings.ACTION_DREAM_SETTINGS));
     }
 
     private Map<String, Object> getActiveNetworkInformation() {

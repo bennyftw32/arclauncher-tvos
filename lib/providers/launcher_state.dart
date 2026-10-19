@@ -42,6 +42,10 @@ class LauncherState extends ChangeNotifier
 
   LauncherState() : _isDefaultLauncher = false, _launcherVisible = true, _appGridFocused = false;
 
+  // Encoded bytes of the art the Top Shelf is currently showing (item art or the app's banner),
+  // so the dock can draw a cheap "frosted" copy of it instead of a live backdrop blur.
+  final ValueNotifier<Uint8List?> shelfArt = ValueNotifier(null);
+
   // The Top Shelf can take focus (Up from the dock) when it is showing real items.
   final FocusNode shelfFocusNode = FocusNode(debugLabel: 'TopShelf');
   FocusNode? _shelfReturnFocus;

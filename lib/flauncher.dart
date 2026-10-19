@@ -17,6 +17,7 @@
  */
 
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:collection/collection.dart';
@@ -99,6 +100,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     _dockTop.dispose();
+    _dockSettled.dispose();
     super.dispose();
   }
 
@@ -192,7 +194,12 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     context.read<LauncherState>().setAppGridFocused(focused);
   }
 
+  // The dock's live blur (over Top Shelf art) is expensive to recompute while the page scrolls,
+  // so it only runs once the page has settled at the top; otherwise the cached wallpaper blur is used.
+  final ValueNotifier<bool> _dockSettled = ValueNotifier(true);
+
   void _onAppGridFocused({VoidCallback? onFirstSectionFocused}) {
+    _dockSettled.value = false;
     _setAppGridFocused(true);
     onFirstSectionFocused?.call();
   }
@@ -201,7 +208,12 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     _setAppGridFocused(false);
     // tvOS: with the dock focused the page rests at the top, dock under the Top Shelf.
     if (_scrollController.hasClients && _scrollController.offset > 1) {
-      _scrollController.animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeInOutCubic);
+      _dockSettled.value = false;
+      _scrollController
+          .animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeInOutCubic)
+          .whenComplete(() => _dockSettled.value = true);
+    } else {
+      _dockSettled.value = true;
     }
   }
 
@@ -407,7 +419,8 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
                       autofocus: index == 0,
                       handleUpNavigationToSettings: isFirstSection && index < category.columnsCount,
                       enforceAspectRatio: false,
-                      onFocused: index < category.columnsCount ? onAppFocused : null,
+                      // Every grid tile marks the grid focused (blur on); only the first row also scrolls the dock away.
+                      onFocused: index < category.columnsCount ? onAppFocused : () => _onAppGridFocused(),
                       ensureVisibleOnFocus: onAppFocused == null || index >= category.columnsCount,
                       onlyScrollWhenNearBottom: true,
                       onMove: (direction) => _onGridMove(context, category, index, direction, filteredApps),
@@ -448,7 +461,8 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
   Widget _folderTile(Category folder, int index, int columns, VoidCallback onAppFocused) => Padding(
     key: ValueKey('folder-${folder.id}'),
     padding: const EdgeInsets.symmetric(horizontal: kAppCardHorizontalPadding, vertical: kAppCardVerticalPadding),
-    child: FolderTile(folder: folder, onFocused: onAppFocused),
+    // Folders sit after the apps, never in the first row, so they only mark the grid focused.
+    child: FolderTile(folder: folder, onFocused: () => _onAppGridFocused()),
   );
 
   Future<void> _scrollDockToTop() async {
@@ -583,12 +597,47 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
           clipBehavior: Clip.antiAlias,
           child: backdropDisabled
               ? content
-              : shelfShowing
-                  ? BackdropFilter(
-                      filter: ui.ImageFilter.blur(sigmaX: TvosTokens.dockBlurSigma, sigmaY: TvosTokens.dockBlurSigma),
+              : ValueListenableBuilder<bool>(
+                  valueListenable: _dockSettled,
+                  child: content,
+                  builder: (context, settled, content) {
+                    final gridFocused = context.select<LauncherState, bool>((s) => s.appGridFocused);
+                    if (!shelfShowing || gridFocused) {
+                      // Background is the (blurred) wallpaper: the cheap cached blur matches it.
+                      return CachedBlurBackdrop(sigma: 5, child: content!);
+                    }
+                    if (!settled) {
+                      // Mid-scroll over shelf art: a dark tint while the dock moves.
+                      return ColoredBox(color: const Color(0x73000000), child: content);
+                    }
+                    // Frosted glass without a live blur: a 96px copy of the shelf art, stretched to
+                    // screen size and aligned with it, reads as heavily blurred and costs almost
+                    // nothing. (A live BackdropFilter here added ~12% jank to shelf paging.)
+                    return ValueListenableBuilder<Uint8List?>(
+                      valueListenable: context.read<LauncherState>().shelfArt,
                       child: content,
-                    )
-                  : CachedBlurBackdrop(sigma: 5, child: content),
+                      builder: (context, art, content) {
+                        if (art == null) {
+                          return ColoredBox(color: const Color(0x73000000), child: content);
+                        }
+                        return Stack(
+                          children: [
+                            Positioned.fill(
+                              child: _ScreenAligned(
+                                child: ShelfImageCrossfade(
+                                  image: ResizeImage(MemoryImage(art), width: 96),
+                                  filterQuality: FilterQuality.medium,
+                                ),
+                              ),
+                            ),
+                            const Positioned.fill(child: ColoredBox(color: Color(0x40000000))),
+                            content!,
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
         ),
       ),
     );
@@ -634,6 +683,49 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+/// Lays its child out at full-screen size and paints it shifted so it lines up with the screen,
+/// whatever box it sits in: the dock uses this to show the part of the Top Shelf art behind it.
+class _ScreenAligned extends SingleChildRenderObjectWidget {
+  const _ScreenAligned({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderScreenAligned(MediaQuery.sizeOf(context));
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderScreenAligned renderObject) {
+    renderObject.screenSize = MediaQuery.sizeOf(context);
+  }
+}
+
+class _RenderScreenAligned extends RenderProxyBox {
+  Size _screenSize;
+
+  _RenderScreenAligned(this._screenSize);
+
+  set screenSize(Size value) {
+    if (value != _screenSize) {
+      _screenSize = value;
+      markNeedsLayout();
+    }
+  }
+
+  @override
+  void performLayout() {
+    child?.layout(BoxConstraints.tight(_screenSize));
+    size = constraints.biggest;
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    context.paintChild(child, offset - localToGlobal(Offset.zero));
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => false;
 }
 
 /// Renders a [Gradient] once into a rasterized [ui.Image] and blits it as a

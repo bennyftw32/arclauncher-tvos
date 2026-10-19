@@ -110,6 +110,37 @@ class _TopShelfState extends State<TopShelf> {
     });
   }
 
+  // Shelf art is decoded at 1280px wide: plenty for a blurred-edge backdrop at 1080p, and much
+  // cheaper than full width on the box's GPU.
+  static ImageProvider shelfImage(Uint8List bytes) => ResizeImage(MemoryImage(bytes), width: 1280);
+
+  final Set<String> _precached = {};
+
+  /// Decode the items either side of the current one ahead of time, so paging only crossfades
+  /// already-decoded images instead of decoding mid-animation (measured jank: 11.7% -> see tools/perf.sh).
+  void _precacheNeighbours(_ShelfContent? content) {
+    if (content == null || content.items.isEmpty) {
+      return;
+    }
+    final watchNext = context.read<WatchNextService>();
+    for (final i in [content.index - 1, content.index + 1]) {
+      if (i < 0 || i >= content.items.length) {
+        continue;
+      }
+      final uri = WatchNextService.shelfImageUri(content.items[i]);
+      if (uri == null || _precached.contains(uri)) {
+        continue;
+      }
+      final bytes = watchNext.getCachedPoster(uri);
+      if (bytes == null) {
+        watchNext.ensurePosterLoaded(uri);
+        continue;
+      }
+      _precached.add(uri);
+      precacheImage(shelfImage(bytes), context);
+    }
+  }
+
   void _showIndex(int index) {
     final content = _content;
     if (content == null || index < 0 || index >= content.items.length || index == content.index) {
@@ -168,6 +199,7 @@ class _TopShelfState extends State<TopShelf> {
     final currentUri = content?.current == null ? null : WatchNextService.shelfImageUri(content!.current!);
     // Rebuild when a poster we're waiting on finishes loading.
     final posterBytes = context.select<WatchNextService, Uint8List?>((s) => s.getCachedPoster(currentUri));
+    _precacheNeighbours(content);
 
     // Title block ends 56px above the dock; the page dots sit in that gap.
     final screenHeight = MediaQuery.sizeOf(context).height;
@@ -175,16 +207,19 @@ class _TopShelfState extends State<TopShelf> {
     final dotsBottomInset = screenHeight - dockTop + 22;
     final titleBottomInset = dotsBottomInset + 34;
 
+    // Background: within one app, paging crossfades two already-decoded images by painting them
+    // with alpha ([ShelfImageCrossfade], no offscreen layer). Switching apps swaps the whole shelf.
     Widget child;
+    Widget? titleText;
+    final showingArt = content != null && content.current != null && posterBytes != null;
     if (content == null) {
       child = const SizedBox.expand(key: ValueKey('empty'));
-    } else if (content.current != null && posterBytes != null) {
-      child = _ArtShelf(
-        key: ValueKey('art-${content.packageName}-$currentUri'),
-        image: MemoryImage(posterBytes),
+    } else if (showingArt) {
+      child = ShelfImageCrossfade(key: ValueKey('art-${content.packageName}'), image: shelfImage(posterBytes));
+      titleText = _ShelfTitleText(
+        key: ValueKey('title-${content.packageName}-$currentUri'),
         title: content.current!.title,
         description: content.current!.description,
-        titleBottomInset: titleBottomInset,
       );
     } else if (content.fallbackImage != null && content.fallbackImage!.isNotEmpty) {
       child = _FallbackShelf(
@@ -193,6 +228,11 @@ class _TopShelfState extends State<TopShelf> {
       );
     } else {
       child = const SizedBox.expand(key: ValueKey('empty'));
+    }
+
+    final art = showingArt ? posterBytes : content?.fallbackImage;
+    if (launcherState.shelfArt.value != art) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => launcherState.shelfArt.value = art);
     }
 
     final interactive = context.select<LauncherState, bool>((s) => s.shelfInteractive);
@@ -219,6 +259,21 @@ class _TopShelfState extends State<TopShelf> {
               switchOutCurve: Curves.easeIn,
               layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
               child: child,
+            ),
+            if (showingArt) const _ShelfScrim(),
+            // The title fades in its own small box, not as a full-screen layer.
+            Positioned(
+              left: TvosTokens.sideSafeArea,
+              right: MediaQuery.sizeOf(context).width * 0.4,
+              bottom: titleBottomInset,
+              child: AnimatedSwitcher(
+                duration: TvosTokens.shelfCrossfade,
+                layoutBuilder: (current, previous) => Stack(
+                  alignment: Alignment.bottomLeft,
+                  children: [...previous, ?current],
+                ),
+                child: titleText ?? const SizedBox.shrink(key: ValueKey('no-title')),
+              ),
             ),
             if (content != null && content.items.length > 1)
               Positioned(
@@ -276,95 +331,146 @@ class _PageDots extends StatelessWidget {
 }
 
 /// Item art filling the screen, darkened toward the bottom and left so the title and dock read.
-class _ArtShelf extends StatelessWidget {
+/// Full-screen shelf art (also used, tiny and stretched, as the dock's frosted backing) that crossfades to a new [image] by painting the outgoing and incoming
+/// images with alpha, which avoids the offscreen layer a FadeTransition would need.
+class ShelfImageCrossfade extends StatefulWidget {
   final ImageProvider image;
-  final String title;
-  final String? description;
-  final double titleBottomInset;
+  final FilterQuality filterQuality;
 
-  const _ArtShelf({
-    super.key,
-    required this.image,
-    required this.title,
-    required this.description,
-    required this.titleBottomInset,
-  });
+  const ShelfImageCrossfade({super.key, required this.image, this.filterQuality = FilterQuality.low});
+
+  @override
+  State<ShelfImageCrossfade> createState() => _ShelfImageCrossfadeState();
+}
+
+class _ShelfImageCrossfadeState extends State<ShelfImageCrossfade> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller =
+      AnimationController(vsync: this, duration: TvosTokens.shelfCrossfade, value: 1);
+  late final Animation<double> _fadeIn = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+  late final Animation<double> _fadeOut = ReverseAnimation(_fadeIn);
+  ImageProvider? _previous;
+
+  @override
+  void didUpdateWidget(ShelfImageCrossfade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.image != widget.image) {
+      _previous = oldWidget.image;
+      _controller.forward(from: 0).whenComplete(() {
+        if (mounted) setState(() => _previous = null);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Widget _image(ImageProvider image, Animation<double> opacity) => Image(
+        image: image,
+        opacity: opacity,
+        fit: BoxFit.cover,
+        alignment: Alignment.topCenter,
+        gaplessPlayback: true,
+        filterQuality: widget.filterQuality,
+      );
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image(
-          image: ResizeImage(image, width: (size.width * dpr).round(), policy: ResizeImagePolicy.fit),
-          fit: BoxFit.cover,
-          alignment: Alignment.topCenter,
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              stops: [0.0, 0.45, 1.0],
-              colors: [Color(0x00000000), Color(0x33000000), Color(0xE6000000)],
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_previous != null) _image(_previous!, _fadeOut),
+          _image(widget.image, _fadeIn),
+        ],
+      ),
+    );
+  }
+}
+
+/// Title and subtitle for the current shelf item (positioned by the shelf above the dock).
+class _ShelfTitleText extends StatelessWidget {
+  final String title;
+  final String? description;
+
+  const _ShelfTitleText({super.key, required this.title, required this.description});
+
+  @override
+  Widget build(BuildContext context) {
+    // The shelf sits outside the Scaffold, so give the text a plain default style
+    // (otherwise Flutter's missing-Material debug underline shows).
+    return DefaultTextStyle(
+      style: const TextStyle(decoration: TextDecoration.none),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: TvosTokens.fontFamily,
+              fontSize: 44,
+              height: 1.1,
+              fontWeight: FontWeight.w700,
+              color: TvosTokens.textPrimary,
             ),
           ),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.center,
-              colors: [Color(0x8C000000), Color(0x00000000)],
-            ),
-          ),
-        ),
-        Positioned(
-          left: TvosTokens.sideSafeArea,
-          right: size.width * 0.4,
-          bottom: titleBottomInset,
-          // The shelf sits outside the Scaffold, so give the text a plain default style
-          // (otherwise Flutter's missing-Material debug underline shows).
-          child: DefaultTextStyle(
-            style: const TextStyle(decoration: TextDecoration.none),
-            child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontFamily: TvosTokens.fontFamily,
-                  fontSize: 44,
-                  height: 1.1,
-                  fontWeight: FontWeight.w700,
-                  color: TvosTokens.textPrimary,
-                ),
+          if (description != null && description!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              description!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: TvosTokens.fontFamily,
+                fontSize: 20,
+                height: 1.3,
+                fontWeight: FontWeight.w400,
+                color: TvosTokens.textSecondary,
               ),
-              if (description != null && description!.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  description!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: TvosTokens.fontFamily,
-                    fontSize: 20,
-                    height: 1.3,
-                    fontWeight: FontWeight.w400,
-                    color: TvosTokens.textSecondary,
-                  ),
-                ),
-              ],
-            ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Darkens the shelf toward the bottom (into the dock) and the left (behind the title).
+class _ShelfScrim extends StatelessWidget {
+  const _ShelfScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    return const RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.0, 0.45, 1.0],
+                colors: [Color(0x00000000), Color(0x33000000), Color(0xE6000000)],
+              ),
+            ),
           ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.center,
+                colors: [Color(0x8C000000), Color(0x00000000)],
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -41,7 +41,8 @@ abstract final class TvosTokens {
   static const Offset restShadowOffset = Offset(0, 6);
 
   // Blur.
-  static const double dockBlurSigma = 30;
+  // Logical px (x2 on the box).
+  static const double dockBlurSigma = 20;
   static const double shelfBlurSigma = 25;
 
   // Motion.
