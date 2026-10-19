@@ -168,6 +168,22 @@ class FLauncherChannel {
     }
   }
 
+  /// Featured items [packageName] publishes to its home-screen channels (Top Shelf content).
+  Future<List<Map<dynamic, dynamic>>> getPreviewPrograms(String packageName, {int limit = 8}) async {
+    try {
+      var result = await _methodChannel.invokeMethod('getPreviewPrograms', {
+        'packageName': packageName,
+        'limit': limit,
+      });
+      if (result == null) return [];
+      return (result as List).cast<Map<dynamic, dynamic>>();
+    } on PlatformException {
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   Future<bool> launchWatchNextItem(String? packageName, String? contentId, String? action) async {
     try {
       var result = await _methodChannel.invokeMethod('launchWatchNextItem', {

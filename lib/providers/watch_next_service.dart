@@ -202,6 +202,32 @@ class WatchNextService extends ChangeNotifier {
     return _failedPosters.contains(uri);
   }
 
+  final Map<String, (DateTime, List<WatchNextItem>)> _shelfCache = {};
+  static const Duration _shelfCacheTtl = Duration(minutes: 5);
+
+  /// Top Shelf items for [packageName]: its "continue watching" rows first, then the featured
+  /// items it publishes to its home-screen channels. Cached per package for a few minutes.
+  Future<List<WatchNextItem>> shelfItemsFor(String packageName) async {
+    final cached = _shelfCache[packageName];
+    if (cached != null && DateTime.now().difference(cached.$1) < _shelfCacheTtl) {
+      return cached.$2;
+    }
+    final continueWatching = _items.where((item) => item.packageName == packageName);
+    List<WatchNextItem> featured = const [];
+    if (_hasPermission) {
+      final rows = await _fLauncherChannel.getPreviewPrograms(packageName);
+      featured = rows.map((map) => WatchNextItem.fromMap(map)).toList();
+    }
+    final result = [...continueWatching, ...featured]
+        .where((item) => item.backdropUri != null || item.posterUri != null)
+        .toList(growable: false);
+    _shelfCache[packageName] = (DateTime.now(), result);
+    return result;
+  }
+
+  /// Best image for a wide shelf: the 16:9 thumbnail when the app supplies one, else the poster.
+  static String? shelfImageUri(WatchNextItem item) => item.backdropUri ?? item.posterUri;
+
   Future<void> launchItem(WatchNextItem item) async {
     debugPrint('WatchNext: Launching item: ${item.title}');
     debugPrint('WatchNext: packageName=${item.packageName}, contentId=${item.contentId}, intentUri=${item.intentUri}');

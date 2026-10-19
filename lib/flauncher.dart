@@ -32,6 +32,7 @@ import 'package:flauncher/widgets/cached_blur_backdrop.dart';
 import 'package:flauncher/widgets/category_clean_row.dart';
 import 'package:flauncher/widgets/category_row.dart';
 import 'package:flauncher/widgets/launcher_alternative_view.dart';
+import 'package:flauncher/widgets/top_shelf.dart';
 import 'package:flauncher/widgets/focus_aware_app_bar.dart';
 import 'package:flauncher/widgets/wallpaper_video_background.dart';
 import 'package:flauncher/widgets/watch_next_row.dart';
@@ -49,6 +50,9 @@ const _kDockOuterPadding = EdgeInsets.only(
   top: 10,
   bottom: 16,
 );
+
+// Keeps the Top Shelf title above the dock (dock height + its padding + breathing room).
+const double _kShelfTitleBottomInset = 260;
 
 class FLauncher extends StatefulWidget {
   const FLauncher({super.key});
@@ -98,6 +102,9 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
               builder: (_, wallpaperService, __) => _wallpaper(context, wallpaperService),
             ),
           ),
+          // Top Shelf sits between the wallpaper and the grid's blur layer, so moving into the
+          // grid blurs it away the way tvOS does.
+          const Positioned.fill(child: RepaintBoundary(child: TopShelf(titleBottomInset: _kShelfTitleBottomInset))),
           Selector3<LauncherState, SettingsService, WallpaperService, (bool, bool, bool)>(
             selector: (_, launcherState, settings, wallpaperService) => (
               launcherState.appGridFocused,
@@ -444,6 +451,8 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     final backdropDisabled = context.select<SettingsService, bool>((s) => s.dockBackdropFilterDisabled);
     final darkBackground = context.select<SettingsService, bool>((s) => s.dockDarkBackground);
     final shadowEnabled = context.select<SettingsService, bool>((s) => s.dockShadowEnabled);
+    // The cached blur samples the wallpaper only; over Top Shelf art the dock needs a live blur.
+    final shelfShowing = context.select<LauncherState, bool>((s) => s.shelfPackage != null);
 
     const dockBorderRadius = 24.0;
     final borderRadius = BorderRadius.circular(dockBorderRadius);
@@ -464,6 +473,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
         isFirstSection: handleUpNavigationToSettings,
         scrollAlignment: 1.0,
         onAppFocused: _onHomeSectionFocused,
+        onAppFocusedWithApp: (app) => context.read<LauncherState>().setShelfPackage(app.packageName),
       ),
     );
 
@@ -478,7 +488,11 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
         child: ClipRRect(
           borderRadius: borderRadius,
           clipBehavior: Clip.antiAlias,
-          child: backdropDisabled ? content : CachedBlurBackdrop(sigma: 5, child: content),
+          child: backdropDisabled
+              ? content
+              : shelfShowing
+                  ? BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: content)
+                  : CachedBlurBackdrop(sigma: 5, child: content),
         ),
       ),
     );

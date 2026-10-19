@@ -35,7 +35,20 @@ class LauncherState extends ChangeNotifier
   bool get launcherVisible => _launcherVisible;
   bool get appGridFocused => _appGridFocused;
 
+  // Package of the dock app the Top Shelf is showing. Kept when focus leaves the dock so the
+  // shelf doesn't flash empty; the grid's blur layer covers it instead, as on tvOS.
+  String? _shelfPackage;
+  String? get shelfPackage => _shelfPackage;
+
   LauncherState() : _isDefaultLauncher = false, _launcherVisible = true, _appGridFocused = false;
+
+  void setShelfPackage(String packageName) {
+    if (_shelfPackage == packageName) {
+      return;
+    }
+    _shelfPackage = packageName;
+    notifyListeners();
+  }
 
   void toggleLauncherVisibility() {
     _launcherVisible = !_launcherVisible;

@@ -168,6 +168,13 @@ public class MainActivity extends FlutterActivity {
                     int limit = call.arguments() != null ? (int) call.arguments() : 10;
                     result.success(getWatchNextItems(limit));
                 }
+                case "getPreviewPrograms" -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> args = (Map<String, Object>) call.arguments();
+                    String packageName = args != null ? (String) args.get("packageName") : null;
+                    Integer limit = args != null ? (Integer) args.get("limit") : null;
+                    result.success(getPreviewPrograms(packageName, limit != null ? limit : 8));
+                }
                 case "launchWatchNextItem" -> {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> args = (Map<String, Object>) call.arguments();
@@ -858,6 +865,82 @@ public class MainActivity extends FlutterActivity {
         }
 
         return items.subList(0, Math.min(items.size(), limit));
+    }
+
+    /**
+     * Featured items an app publishes to its home-screen channels (TvContract.PreviewPrograms).
+     * This is the closest Android equivalent of an Apple TV app's Top Shelf content.
+     * Rows use the same map shape as {@link #getWatchNextItems(int)}.
+     */
+    private List<Map<String, Object>> getPreviewPrograms(String packageName, int limit) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (packageName == null || packageName.isEmpty() || !checkWatchNextPermission()) {
+            return items;
+        }
+
+        String[] projection = {
+            TvContract.PreviewPrograms._ID,
+            TvContract.PreviewPrograms.COLUMN_TITLE,
+            TvContract.PreviewPrograms.COLUMN_SHORT_DESCRIPTION,
+            TvContract.PreviewPrograms.COLUMN_POSTER_ART_URI,
+            TvContract.PreviewPrograms.COLUMN_THUMBNAIL_URI,
+            TvContract.PreviewPrograms.COLUMN_PACKAGE_NAME,
+            TvContract.PreviewPrograms.COLUMN_INTERNAL_PROVIDER_ID,
+            TvContract.PreviewPrograms.COLUMN_INTENT_URI,
+            TvContract.PreviewPrograms.COLUMN_POSTER_ART_ASPECT_RATIO,
+        };
+
+        // TvProvider rejects selection/sort arguments from non-system callers
+        // ("Selection not allowed"), so read the rows we can see and filter here.
+        try (Cursor cursor = getContentResolver().query(
+                TvContract.PreviewPrograms.CONTENT_URI,
+                projection,
+                null,
+                null,
+                null)) {
+
+            if (cursor == null) {
+                return items;
+            }
+            int pkgIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_PACKAGE_NAME);
+            int idIndex = cursor.getColumnIndex(TvContract.PreviewPrograms._ID);
+            int titleIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_TITLE);
+            int descIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_SHORT_DESCRIPTION);
+            int posterIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_POSTER_ART_URI);
+            int thumbIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_THUMBNAIL_URI);
+            int contentIdIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_INTERNAL_PROVIDER_ID);
+            int intentUriIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_INTENT_URI);
+            int aspectIndex = cursor.getColumnIndex(TvContract.PreviewPrograms.COLUMN_POSTER_ART_ASPECT_RATIO);
+
+            while (cursor.moveToNext() && items.size() < limit) {
+                if (pkgIndex < 0 || !packageName.equals(cursor.getString(pkgIndex))) {
+                    continue;
+                }
+                String title = (titleIndex >= 0 && !cursor.isNull(titleIndex)) ? cursor.getString(titleIndex) : null;
+                String poster = (posterIndex >= 0 && !cursor.isNull(posterIndex)) ? cursor.getString(posterIndex) : null;
+                String thumb = (thumbIndex >= 0 && !cursor.isNull(thumbIndex)) ? cursor.getString(thumbIndex) : null;
+                if ((title == null || title.isEmpty()) && poster == null && thumb == null) {
+                    continue;
+                }
+                Map<String, Object> item = new HashMap<>();
+                item.put("id", idIndex >= 0 ? cursor.getLong(idIndex) : 0);
+                item.put("title", title != null ? title : "");
+                item.put("description", (descIndex >= 0 && !cursor.isNull(descIndex)) ? cursor.getString(descIndex) : null);
+                item.put("posterUri", poster);
+                item.put("backdropUri", thumb);
+                item.put("packageName", packageName);
+                item.put("contentId", (contentIdIndex >= 0 && !cursor.isNull(contentIdIndex)) ? cursor.getString(contentIdIndex) : null);
+                item.put("intentUri", (intentUriIndex >= 0 && !cursor.isNull(intentUriIndex)) ? cursor.getString(intentUriIndex) : null);
+                item.put("aspectRatio", (aspectIndex >= 0 && !cursor.isNull(aspectIndex)) ? String.valueOf(cursor.getInt(aspectIndex)) : null);
+                item.put("progressPercent", 0);
+                items.add(item);
+            }
+        } catch (SecurityException e) {
+            android.util.Log.w("MainActivity", "SecurityException when querying preview programs: " + e.getMessage());
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "Error querying preview programs", e);
+        }
+        return items;
     }
 
     private boolean launchWatchNextItem(String packageName, String contentId, String action) {
