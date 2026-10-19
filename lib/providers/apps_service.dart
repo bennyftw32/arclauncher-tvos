@@ -582,6 +582,31 @@ class AppsService extends ChangeNotifier
   }
   
   /// Adds an app to Favorites and removes it from the Apps category
+  /// Puts [app] in [folder] and takes it out of the main grid, so it shows only in the folder.
+  Future<void> moveToFolder(App app, Category folder) async {
+    if (!folder.applications.any((a) => a.packageName == app.packageName)) {
+      await addToCategory(app, folder, shouldNotifyListeners: false);
+    }
+    final appsCategory = _getAppsCategory();
+    if (appsCategory != null && appsCategory.applications.any((a) => a.packageName == app.packageName)) {
+      await removeFromCategory(app, appsCategory);
+    } else {
+      notifyListeners();
+    }
+  }
+
+  /// Takes [app] out of [folder]; if that leaves it in no section at all, it goes back to the main grid.
+  Future<void> removeFromFolder(App app, Category folder) async {
+    await removeFromCategory(app, folder);
+    final stillPlaced = _categoriesById.values.any(
+      (category) => category.applications.any((a) => a.packageName == app.packageName),
+    );
+    final appsCategory = _getAppsCategory();
+    if (!stillPlaced && appsCategory != null) {
+      await addToCategory(app, appsCategory);
+    }
+  }
+
   Future<void> addToFavorites(App app) async {
     Category favorites = await getOrCreateFavoritesCategory();
     

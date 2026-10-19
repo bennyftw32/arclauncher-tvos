@@ -201,7 +201,12 @@ class _ApplicationInfoPanelState extends State<ApplicationInfoPanel>
                          ],
                        ),
                        onPressed: () async {
-                         await context.read<AppsService>().removeFromCategory(widget.application, widget.category!);
+                         final appsService = context.read<AppsService>();
+                         if (widget.category!.type == CategoryType.folder) {
+                           await appsService.removeFromFolder(widget.application, widget.category!);
+                         } else {
+                           await appsService.removeFromCategory(widget.application, widget.category!);
+                         }
                          Navigator.of(context).pop(ApplicationInfoPanelResult.none);
                        },
                      ),

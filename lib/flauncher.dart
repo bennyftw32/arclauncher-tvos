@@ -32,6 +32,7 @@ import 'package:flauncher/widgets/cached_blur_backdrop.dart';
 import 'package:flauncher/widgets/category_clean_row.dart';
 import 'package:flauncher/widgets/category_row.dart';
 import 'package:flauncher/widgets/launcher_alternative_view.dart';
+import 'package:flauncher/widgets/folder_tile.dart';
 import 'package:flauncher/widgets/top_shelf.dart';
 import 'package:flauncher/theme/tvos_tokens.dart';
 import 'package:flauncher/widgets/focus_aware_app_bar.dart';
@@ -195,9 +196,15 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     final favoritesCategory = appsService.categories.firstWhereOrNull((c) => c.name == 'Favorites');
     final favoriteApps = favoritesCategory?.applications ?? const [];
 
+    // Folders don't get their own section; they appear as tiles at the end of the main grid.
+    final folders = appsService.launcherSections
+        .whereType<Category>()
+        .where((category) => category.type == CategoryType.folder)
+        .toList(growable: false);
     final otherSections =
         appsService.launcherSections.where((section) {
           if (section is Category && section.name == 'Favorites') return false;
+          if (section is Category && section.type == CategoryType.folder) return false;
           return true;
         }).toList();
 
@@ -247,6 +254,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
         ],
         ..._buildSectionSlivers(
           otherSections,
+          folders: folders,
           firstCategoryAlreadyFound: favoriteApps.isNotEmpty,
           showAppNames: showAppNames,
           onFirstSectionFocused: favoriteApps.isNotEmpty ? _scrollDockToTop : null,
@@ -265,6 +273,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
 
   List<Widget> _buildSectionSlivers(
     List<LauncherSection> sections, {
+    List<Category> folders = const [],
     bool firstCategoryAlreadyFound = false,
     required bool showAppNames,
     VoidCallback? onFirstSectionFocused,
@@ -272,6 +281,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     final List<Widget> slivers = [];
     bool firstCategoryFound = firstCategoryAlreadyFound;
     bool firstBuiltSectionFound = false;
+    bool foldersPlaced = folders.isEmpty;
 
     for (final section in sections) {
       final Key sectionKey = Key(section.id.toString());
@@ -336,11 +346,16 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
             ),
           );
           break;
+        case CategoryType.folder:
+          break;
         case CategoryType.grid:
           final gridContentWidth = MediaQuery.sizeOf(context).width - 2 * kLauncherSectionHorizontalPadding;
           final gridAspectRatio = showAppNames
               ? appCardGridAspectRatio(gridContentWidth, category.columnsCount)
               : kAppCardAspectRatio;
+          // The first grid also carries the folder tiles, after its apps.
+          final gridFolders = foldersPlaced ? const <Category>[] : folders;
+          foldersPlaced = true;
           slivers.add(
             SliverPadding(
               padding: const EdgeInsets.only(
@@ -357,13 +372,17 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
                   crossAxisSpacing: 0,
                 ),
                 delegate: SliverChildBuilderDelegate(
-                  childCount: filteredApps.length,
+                  childCount: filteredApps.length + gridFolders.length,
                   findChildIndexCallback: (Key key) {
                     final valueKey = key as ValueKey<String>;
                     final index = filteredApps.indexWhere((app) => app.packageName == valueKey.value);
-                    return index >= 0 ? index : null;
+                    if (index >= 0) return index;
+                    final folderIndex = gridFolders.indexWhere((f) => 'folder-${f.id}' == valueKey.value);
+                    return folderIndex >= 0 ? filteredApps.length + folderIndex : null;
                   },
-                  (context, index) => Padding(
+                  (context, index) => index >= filteredApps.length
+                      ? _folderTile(gridFolders[index - filteredApps.length], index, category.columnsCount, onAppFocused)
+                      : Padding(
                     key: Key(filteredApps[index].packageName),
                     padding: const EdgeInsets.symmetric(
                       horizontal: kAppCardHorizontalPadding,
@@ -390,8 +409,34 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
       }
     }
 
+    // No grid to sit in: give the folders a grid of their own.
+    if (!foldersPlaced) {
+      slivers.add(
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: kLauncherSectionHorizontalPadding),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: Category.ColumnsCount,
+              childAspectRatio: kAppCardAspectRatio,
+              mainAxisSpacing: 28,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              childCount: folders.length,
+              (context, index) => _folderTile(folders[index], index, Category.ColumnsCount, () => _onAppGridFocused()),
+            ),
+          ),
+        ),
+      );
+    }
+
     return slivers;
   }
+
+  Widget _folderTile(Category folder, int index, int columns, VoidCallback onAppFocused) => Padding(
+    key: ValueKey('folder-${folder.id}'),
+    padding: const EdgeInsets.symmetric(horizontal: kAppCardHorizontalPadding, vertical: kAppCardVerticalPadding),
+    child: FolderTile(folder: folder, onFocused: onAppFocused),
+  );
 
   Future<void> _scrollDockToTop() async {
     final targetOffset = _dockTopScrollOffset();

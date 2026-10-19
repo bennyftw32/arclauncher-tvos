@@ -493,6 +493,10 @@ class _CategorySettingsState extends State<_CategorySettings>
                 DropdownMenuItem(
                   value: CategoryType.grid,
                   child: Text(localizations.grid, style: Theme.of(context).textTheme.bodySmall)
+                ),
+                DropdownMenuItem(
+                  value: CategoryType.folder,
+                  child: Text('Folder', style: Theme.of(context).textTheme.bodySmall)
                 )
               ]
             )

@@ -42,7 +42,12 @@ class AddToCategoryDialog extends StatelessWidget {
                         margin: EdgeInsets.only(bottom: 8),
                         child: ListTile(
                           onTap: () async {
-                            await context.read<AppsService>().addToCategory(selectedApplication, category);
+                            final appsService = context.read<AppsService>();
+                            if (category.type == CategoryType.folder) {
+                              await appsService.moveToFolder(selectedApplication, category);
+                            } else {
+                              await appsService.addToCategory(selectedApplication, category);
+                            }
                             Navigator.of(context).pop();
                           },
                           title: Text(category.name),

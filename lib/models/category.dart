@@ -37,6 +37,9 @@ enum CategoryType
 {
   row,
   grid,
+  // tvOS-style folder: shown as a single tile in the main grid; opens as an overlay.
+  // Appended last so existing stored indexes keep their meaning.
+  folder,
 }
 
 class LauncherSection
