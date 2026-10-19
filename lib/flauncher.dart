@@ -33,6 +33,7 @@ import 'package:flauncher/widgets/category_clean_row.dart';
 import 'package:flauncher/widgets/category_row.dart';
 import 'package:flauncher/widgets/launcher_alternative_view.dart';
 import 'package:flauncher/widgets/top_shelf.dart';
+import 'package:flauncher/theme/tvos_tokens.dart';
 import 'package:flauncher/widgets/focus_aware_app_bar.dart';
 import 'package:flauncher/widgets/wallpaper_video_background.dart';
 import 'package:flauncher/widgets/watch_next_row.dart';
@@ -51,8 +52,12 @@ const _kDockOuterPadding = EdgeInsets.only(
   bottom: 16,
 );
 
-// Keeps the Top Shelf title above the dock (dock height + its padding + breathing room).
-const double _kShelfTitleBottomInset = 260;
+// Where the dock's top edge sits, as a fraction of screen height.
+const double _kDockTopFraction = 0.66; // lands the dock at ~58% once the initial scroll settles
+
+
+// Extra room inside the dock below the tiles for the focused app's name.
+const double _kDockLabelSpace = 34;
 
 class FLauncher extends StatefulWidget {
   const FLauncher({super.key});
@@ -65,18 +70,30 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
   final GlobalKey<FocusAwareAppBarState> _appBarKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _dockKey = GlobalKey();
+  // On-screen top edge of the dock, for placing the Top Shelf title above it.
+  final ValueNotifier<double?> _dockTop = ValueNotifier(null);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_updateDockTop);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
+    _dockTop.dispose();
     super.dispose();
+  }
+
+  void _updateDockTop() {
+    final box = _dockKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.attached || !box.hasSize) {
+      return;
+    }
+    _dockTop.value = box.localToGlobal(Offset.zero).dy + _kDockOuterPadding.top;
   }
 
   @override
@@ -104,7 +121,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
           ),
           // Top Shelf sits between the wallpaper and the grid's blur layer, so moving into the
           // grid blurs it away the way tvOS does.
-          const Positioned.fill(child: RepaintBoundary(child: TopShelf(titleBottomInset: _kShelfTitleBottomInset))),
+          Positioned.fill(child: RepaintBoundary(child: TopShelf(dockTop: _dockTop))),
           Selector3<LauncherState, SettingsService, WallpaperService, (bool, bool, bool)>(
             selector: (_, launcherState, settings, wallpaperService) => (
               launcherState.appGridFocused,
@@ -168,6 +185,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
 
   void _onHomeSectionFocused() {
     _setAppGridFocused(false);
+    // tvOS: with the dock focused the page rests at the top, dock under the Top Shelf.
+    if (_scrollController.hasClients && _scrollController.offset > 1) {
+      _scrollController.animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeInOutCubic);
+    }
   }
 
   Widget _tvOSLayout(BuildContext context, AppsService appsService, {required bool showAppNames}) {
@@ -185,6 +206,7 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     final reserveWatchNextSpace = showWatchNextSection && watchNextVisible;
 
     if (favoriteApps.isEmpty && otherSections.isEmpty) return _emptyState(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateDockTop());
 
     return CustomScrollView(
       controller: _scrollController,
@@ -192,11 +214,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
         if (favoriteApps.isNotEmpty || showWatchNextSection) ...[
           SliverToBoxAdapter(
             child: SizedBox(
-              height:
-                  MediaQuery.of(context).size.height -
-                  MediaQuery.of(context).padding.top -
-                  kToolbarHeight -
-                  (reserveWatchNextSpace ? 410 : 150),
+              height: reserveWatchNextSpace
+                  ? MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - kToolbarHeight - 410
+                  // tvOS: the dock's top edge sits a little below the middle, under the Top Shelf.
+                  : MediaQuery.of(context).size.height * _kDockTopFraction - kToolbarHeight - _kDockOuterPadding.top,
             ),
           ),
           if (showWatchNextSection)
@@ -454,17 +475,27 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
     // The cached blur samples the wallpaper only; over Top Shelf art the dock needs a live blur.
     final shelfShowing = context.select<LauncherState, bool>((s) => s.shelfPackage != null);
 
-    const dockBorderRadius = 24.0;
-    final borderRadius = BorderRadius.circular(dockBorderRadius);
+    final borderRadius = BorderRadius.circular(TvosTokens.dockRadius);
 
+    // tvOS "glass" shelf: translucent fill, thin light stroke, and a brighter sheen along the
+    // top edge where light catches it.
     final content = Container(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.only(top: 10, bottom: 10 + _kDockLabelSpace, left: 12, right: 12),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: [0.0, 0.04, 0.35],
+          colors: [Color(0x40FFFFFF), Color(0x14FFFFFF), Color(0x00FFFFFF)],
+        ),
+      ),
       decoration: BoxDecoration(
-        color: darkBackground ? Colors.black.withOpacity(0.3) : Colors.white.withOpacity(0.1),
+        color: darkBackground ? Colors.black.withValues(alpha: 0.3) : TvosTokens.glassFill,
         borderRadius: borderRadius,
         border: Border.all(
-          color: darkBackground ? Colors.black.withOpacity(0.15) : Colors.white.withOpacity(0.15),
-          width: 1.5,
+          color: darkBackground ? Colors.black.withValues(alpha: 0.15) : TvosTokens.glassStroke,
+          width: 1,
         ),
       ),
       child: CategoryCleanRow(
@@ -474,6 +505,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
         scrollAlignment: 1.0,
         onAppFocused: _onHomeSectionFocused,
         onAppFocusedWithApp: (app) => context.read<LauncherState>().setShelfPackage(app.packageName),
+        // Up from the dock goes into the Top Shelf when it has items, otherwise to the status bar.
+        onUpPressed: () => context.read<LauncherState>().focusShelf(),
+        // The dock never scrolls the page itself; focusing it returns the page to the top.
+        ensureVisibleOnFocus: false,
       ),
     );
 
@@ -491,7 +526,10 @@ class _FLauncherState extends State<FLauncher> with WidgetsBindingObserver {
           child: backdropDisabled
               ? content
               : shelfShowing
-                  ? BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: content)
+                  ? BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: TvosTokens.dockBlurSigma, sigmaY: TvosTokens.dockBlurSigma),
+                      child: content,
+                    )
                   : CachedBlurBackdrop(sigma: 5, child: content),
         ),
       ),

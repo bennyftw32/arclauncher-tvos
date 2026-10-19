@@ -68,6 +68,8 @@ class AppCard extends StatefulWidget {
   final VoidCallback? onFocused;
   final bool ensureVisibleOnFocus;
   final bool onlyScrollWhenNearBottom;
+  /// Called when Up is pressed (and the card isn't being moved). Return true if handled.
+  final bool Function()? onUpPressed;
 
   const AppCard({
     super.key,
@@ -82,6 +84,7 @@ class AppCard extends StatefulWidget {
     this.onFocused,
     this.ensureVisibleOnFocus = true,
     this.onlyScrollWhenNearBottom = false,
+    this.onUpPressed,
   });
 
   @override
@@ -661,6 +664,8 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
           });
         });
       }
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.arrowUp && (widget.onUpPressed?.call() ?? false)) {
       return KeyEventResult.handled;
     } else if (key == LogicalKeyboardKey.arrowUp && widget.handleUpNavigationToSettings) {
       Actions.invoke(context, const MoveFocusToSettingsIntent());

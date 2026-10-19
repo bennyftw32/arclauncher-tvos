@@ -35,6 +35,8 @@ class CategoryCleanRow extends StatelessWidget
   final double scrollAlignment;
   final VoidCallback? onAppFocused;
   final ValueChanged<App>? onAppFocusedWithApp;
+  final bool Function()? onUpPressed;
+  final bool ensureVisibleOnFocus;
 
   CategoryCleanRow({
     Key? key,
@@ -44,6 +46,8 @@ class CategoryCleanRow extends StatelessWidget
     this.scrollAlignment = 0.5,
     this.onAppFocused,
     this.onAppFocusedWithApp,
+    this.onUpPressed,
+    this.ensureVisibleOnFocus = true,
   }) : super(key: key);
 
   @override
@@ -75,6 +79,8 @@ class CategoryCleanRow extends StatelessWidget
                         application: applications[index],
                         autofocus: index == 0,
                         handleUpNavigationToSettings: isFirstSection,
+                        onUpPressed: onUpPressed,
+                        ensureVisibleOnFocus: ensureVisibleOnFocus,
                         scrollAlignment: scrollAlignment,
                         enforceAspectRatio: false,
                         onFocused: onAppFocused == null && onAppFocusedWithApp == null

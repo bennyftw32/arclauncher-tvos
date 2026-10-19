@@ -52,7 +52,7 @@ class WallpaperService extends ChangeNotifier {
 
   FLauncherGradient get gradient => FLauncherGradients.all.firstWhere(
     (gradient) => gradient.uuid == _settingsService.gradientUuid,
-    orElse: () => FLauncherGradients.saintPetersburg,
+    orElse: () => FLauncherGradients.tvosDark,
   );
 
   WallpaperService(this._settingsService) : _wallpaper = null {

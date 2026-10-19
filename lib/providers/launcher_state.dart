@@ -42,6 +42,41 @@ class LauncherState extends ChangeNotifier
 
   LauncherState() : _isDefaultLauncher = false, _launcherVisible = true, _appGridFocused = false;
 
+  // The Top Shelf can take focus (Up from the dock) when it is showing real items.
+  final FocusNode shelfFocusNode = FocusNode(debugLabel: 'TopShelf');
+  FocusNode? _shelfReturnFocus;
+  bool _shelfInteractive = false;
+  bool get shelfInteractive => _shelfInteractive;
+
+  void setShelfInteractive(bool value) {
+    if (_shelfInteractive == value) {
+      return;
+    }
+    _shelfInteractive = value;
+    notifyListeners();
+  }
+
+  /// Moves focus from the dock into the Top Shelf. Returns false if the shelf has nothing to focus.
+  bool focusShelf() {
+    if (!_shelfInteractive) {
+      return false;
+    }
+    _shelfReturnFocus = FocusManager.instance.primaryFocus;
+    shelfFocusNode.requestFocus();
+    return true;
+  }
+
+  /// Gives focus back to the dock app the user came from.
+  void leaveShelf() {
+    final target = _shelfReturnFocus;
+    _shelfReturnFocus = null;
+    if (target != null && target.canRequestFocus && target.context != null) {
+      target.requestFocus();
+    } else {
+      shelfFocusNode.unfocus();
+    }
+  }
+
   void setShelfPackage(String packageName) {
     if (_shelfPackage == packageName) {
       return;

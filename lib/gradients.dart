@@ -90,7 +90,19 @@ mixin FLauncherGradients {
     const LinearGradient(colors: [Color(0xFF000000), Color(0xFF000000)]),
   );
 
+  // Near-black with a faint lift toward the bottom, like tvOS's dark appearance.
+  static final tvosDark = FLauncherGradient(
+    "7f3a2c1e-5d4b-4a8e-9c6f-0b0b0d1c1c1e",
+    "tvOS Dark",
+    const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFF0B0B0D), Color(0xFF1C1C1E)],
+    ),
+  );
+
   static List<FLauncherGradient> get all => [
+        tvosDark,
         pitchBlack,
         greatWhale,
         viciousStance,

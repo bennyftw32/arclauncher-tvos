@@ -94,6 +94,7 @@ class AppsService extends ChangeNotifier
     if (_database.wasCreated) {
       await _initDefaultCategories();
     }
+    await _migrateGridsToTvosColumns();
 
     _fLauncherChannel.addAppsChangedListener((event) async {
       String? changedPackageName;
@@ -225,6 +226,23 @@ class AppsService extends ChangeNotifier
         version: Value(version),
         hidden: const Value.absent()
       );
+  }
+
+  /// One-time move of grids still on the old 6-column default to tvOS's 5 per row.
+  /// Grids the user set to another count are left alone.
+  Future<void> _migrateGridsToTvosColumns() async {
+    const migratedKey = 'tvos_grid_columns_migrated';
+    final prefs = await _prefsAsync;
+    if (prefs.getBool(migratedKey) ?? false) {
+      return;
+    }
+    for (final category in _categoriesById.values.toList()) {
+      if (category.type == CategoryType.grid && category.columnsCount == 6) {
+        await _database.updateCategory(category.id, CategoriesCompanion(columnsCount: Value(Category.ColumnsCount)));
+        category.columnsCount = Category.ColumnsCount;
+      }
+    }
+    await prefs.setBool(migratedKey, true);
   }
 
   Future<void> _initDefaultCategories() {

@@ -53,7 +53,7 @@ class LauncherSection
 
 class Category extends LauncherSection
 {
-  static const int          ColumnsCount  = 6;
+  static const int          ColumnsCount  = 5; // tvOS shows 5 apps per row
   static const int          RowHeight     = 110;
   static const CategorySort Sort          = CategorySort.manual;
   static const CategoryType Type          = CategoryType.grid;
