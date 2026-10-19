@@ -79,7 +79,8 @@ class SettingsService extends ChangeNotifier {
 
   bool get appKeyClickEnabled => _sharedPreferences.getBool(_appKeyClickEnabledKey) ?? true;
 
-  bool get autoHideAppBarEnabled => _sharedPreferences.getBool(_autoHideAppBar) ?? false;
+  // tvOS has no status bar on the home screen; the bar slides in only when focus moves up to it.
+  bool get autoHideAppBarEnabled => _sharedPreferences.getBool(_autoHideAppBar) ?? true;
 
   bool get showCategoryTitles => _sharedPreferences.getBool(_showCategoryTitles) ?? false;
 
@@ -117,7 +118,8 @@ class SettingsService extends ChangeNotifier {
 
   bool get dockShadowEnabled => _sharedPreferences.getBool(_dockShadowEnabled) ?? false;
 
-  bool get showFocusBorders => _sharedPreferences.getBool(_showFocusBorders) ?? true;
+  // tvOS shows focus by lifting the tile, not with an outline.
+  bool get showFocusBorders => _sharedPreferences.getBool(_showFocusBorders) ?? false;
 
   Color get accentColor {
     final hex = accentColorHex;

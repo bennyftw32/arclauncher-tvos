@@ -57,3 +57,16 @@ flutter:
   assets:
     - assets/
     - lib/l10n/
+  fonts:
+    # Inter (SIL OFL 1.1, see assets/fonts/inter/OFL.txt) stands in for Apple's SF Pro,
+    # whose license limits it to Apple platforms.
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/inter/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/inter/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/inter/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/inter/Inter-Bold.ttf
+          weight: 700

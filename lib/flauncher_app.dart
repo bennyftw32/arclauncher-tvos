@@ -20,6 +20,7 @@ import 'package:flauncher/actions.dart';
 import 'package:flauncher/providers/apps_service.dart';
 import 'package:flauncher/providers/settings_service.dart';
 import 'package:flauncher/providers/launcher_state.dart';
+import 'package:flauncher/theme/tvos_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -85,18 +86,20 @@ class FLauncherApp extends StatelessWidget
         theme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.dark,
+          fontFamily: TvosTokens.fontFamily,
+          textTheme: TvosTokens.textTheme(Typography.material2018().white),
           // Use ColorScheme based on accent color
           colorScheme: ColorScheme.fromSeed(
             seedColor: accentColor,
             brightness: Brightness.dark,
             primary: accentColor,
             secondary: accentColor,
-            surface: const Color(0xFF1E1E1E),
-            background: const Color(0xFF121212),
+            surface: TvosTokens.surface,
+            background: TvosTokens.background,
           ),
-          cardColor: const Color(0xFF1E1E1E), // Dark surface color
-          canvasColor: const Color(0xFF121212),
-          scaffoldBackgroundColor: const Color(0xFF121212), // Dark background
+          cardColor: TvosTokens.surface,
+          canvasColor: TvosTokens.background,
+          scaffoldBackgroundColor: TvosTokens.background,
           textButtonTheme: TextButtonThemeData(
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white, // Revert to white for settings list
@@ -104,10 +107,10 @@ class FLauncherApp extends StatelessWidget
               )
           ),
           dialogTheme: DialogThemeData(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            backgroundColor: const Color(0xFF1E1E1E),
-            titleTextStyle: Typography.material2018().white.titleLarge,
-            contentTextStyle: Typography.material2018().white.bodyMedium,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TvosTokens.panelRadius)),
+            backgroundColor: TvosTokens.surface,
+            titleTextStyle: Typography.material2018().white.titleLarge?.copyWith(fontFamily: TvosTokens.fontFamily),
+            contentTextStyle: Typography.material2018().white.bodyMedium?.copyWith(fontFamily: TvosTokens.fontFamily),
           ),
           appBarTheme: const AppBarTheme(elevation: 0, backgroundColor: Colors.transparent),
           typography: Typography.material2018(),

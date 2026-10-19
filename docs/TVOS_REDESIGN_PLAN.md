@@ -59,8 +59,8 @@ against the tvOS reference shots in `docs/tvos-ref/` (to be collected in Phase 0
   `white @ 22%`), radii (icon 12, dock 32, panels 28), spacing (90 px side safe area, 60 px top),
   focus scale 1.10, shadow tiers, motion curves (`Curves.easeOutCubic` 200 ms focus, 350 ms shelf crossfade).
 - Bundle Inter (Regular/Medium/Semibold/Bold) under `assets/fonts/`, wire into `flauncher_app.dart` `ThemeData`.
-- `focus_aware_app_bar.dart`: add a "tvOS mode" (default on) that renders nothing; settings is reached
-  from Control Center (Phase 6) or a long-press on the dock's Settings app.
+- Status bar: make Arc's existing auto-hide app bar the default (hidden; slides in when focus moves up
+  from the top row). Until Control Center (Phase 6) exists this keeps Settings reachable. *(done)*
 - `settings_service.dart`: new defaults — names under icons off, category titles off, focus borders off,
   highlight animation off, built-in screensaver off.
 - **Done when:** home shows only wallpaper + dock + grid, in Inter.
