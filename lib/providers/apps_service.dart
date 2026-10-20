@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:collection';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:collection/collection.dart' as collection;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -197,11 +198,45 @@ class AppsService extends ChangeNotifier
       notifyListeners();
     });
 
+    await _importBannersFromFolder();
+
     _initialized = true;
     notifyListeners();
-    
+
     // Pre-cache icons for visible apps
     _preCacheIcons();
+  }
+
+  /// Banner drop-folder: `<package>.png` files placed in the app's external `files/banners`
+  /// folder (writable over adb, e.g. tvOS icon art) become that app's custom banner, the same
+  /// as picking an image from the app's menu. Imported files are removed from the folder.
+  Future<void> _importBannersFromFolder() async {
+    try {
+      final external = await getExternalStorageDirectory();
+      if (external == null) return;
+      final folder = Directory('${external.path}/banners');
+      if (!await folder.exists()) return;
+
+      final docDir = await getApplicationDocumentsDirectory();
+      await for (final entity in folder.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        final dot = name.lastIndexOf('.');
+        if (dot <= 0) continue;
+        final packageName = name.substring(0, dot);
+        if (!_applications.containsKey(packageName)) continue;
+
+        final safePackageName = packageName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final saved = await entity.copy('${docDir.path}/custom_banner_$safePackageName.png');
+        final prefs = await _prefsAsync;
+        await prefs.setString('custom_banner_$packageName', saved.path);
+        _bannerCache.remove(packageName);
+        _dirtyImagePackages.add(packageName);
+        await entity.delete();
+      }
+    } catch (e) {
+      debugPrint('Banner folder import failed: $e');
+    }
   }
 
   Future<void> _preCacheIcons() async {
