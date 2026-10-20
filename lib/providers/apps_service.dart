@@ -207,16 +207,18 @@ class AppsService extends ChangeNotifier
     _preCacheIcons();
   }
 
-  /// Banner drop-folder: `<package>.png` files placed in the app's external `files/banners`
-  /// folder (writable over adb, e.g. tvOS icon art) become that app's custom banner, the same
-  /// as picking an image from the app's menu. Imported files are removed from the folder.
+  static const _bannerDropFolder = '/storage/emulated/0/Pictures/ArcTV/banners';
+
+  /// Banner drop-folder: `<package>.png` files in Pictures/ArcTV/banners (writable over adb,
+  /// e.g. tvOS icon art; reading it needs READ_MEDIA_IMAGES) become that app's custom banner,
+  /// the same as picking an image from the app's menu. Each file is imported once per version,
+  /// so a banner picked from the menu later isn't overwritten on the next start.
   Future<void> _importBannersFromFolder() async {
     try {
-      final external = await getExternalStorageDirectory();
-      if (external == null) return;
-      final folder = Directory('${external.path}/banners');
+      final folder = Directory(_bannerDropFolder);
       if (!await folder.exists()) return;
 
+      final prefs = await _prefsAsync;
       final docDir = await getApplicationDocumentsDirectory();
       await for (final entity in folder.list()) {
         if (entity is! File) continue;
@@ -226,13 +228,16 @@ class AppsService extends ChangeNotifier
         final packageName = name.substring(0, dot);
         if (!_applications.containsKey(packageName)) continue;
 
+        final stat = await entity.stat();
+        final version = '${stat.size}@${stat.modified.millisecondsSinceEpoch}';
+        if (prefs.getString('banner_drop_imported_$packageName') == version) continue;
+
         final safePackageName = packageName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         final saved = await entity.copy('${docDir.path}/custom_banner_$safePackageName.png');
-        final prefs = await _prefsAsync;
         await prefs.setString('custom_banner_$packageName', saved.path);
+        await prefs.setString('banner_drop_imported_$packageName', version);
         _bannerCache.remove(packageName);
         _dirtyImagePackages.add(packageName);
-        await entity.delete();
       }
     } catch (e) {
       debugPrint('Banner folder import failed: $e');
